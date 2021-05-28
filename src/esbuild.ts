@@ -22,40 +22,42 @@ const html = 'index';
 const css = () => {
 	let cssOutput = '';
 	return {
-		name: 'css-plugin',
-		output: () => cssOutput,
-		setup(build: any) {
-			build.onLoad({ filter: /\.css/ }, async (args: any) => {
-				let cssModule = '';
-				const css = await util.promisify(fs.readFile)(args.path, 'utf8');
-				const cssModuleExists = fs.existsSync(`${args.path}.js`);
-				const postCssPlugins = cssModuleExists
-					? [atImport(), copyAssets({ base: output })]
-					: [atImport(), cssModules({ getJSON() {} }), copyAssets({ base: output })];
+		getOutput: () => cssOutput,
+		plugin: {
+			name: 'css-plugin',
+			setup(build: any) {
+				build.onLoad({ filter: /\.css/ }, async (args: any) => {
+					let cssModule = '';
+					const css = await util.promisify(fs.readFile)(args.path, 'utf8');
+					const cssModuleExists = fs.existsSync(`${args.path}.js`);
+					const postCssPlugins = cssModuleExists
+						? [atImport(), copyAssets({ base: output })]
+						: [atImport(), cssModules({ getJSON() {} }), copyAssets({ base: output })];
 
-				const postCssOptions = { from: args.path, to: `${output}/${entry}.css` };
-				const result = await postcss(postCssPlugins).process(css, postCssOptions);
+					const postCssOptions = { from: args.path, to: `${output}/${entry}.css` };
+					const result = await postcss(postCssPlugins).process(css, postCssOptions);
 
-				if (cssModuleExists) {
-					cssModule = await util.promisify(fs.readFile)(`${args.path}.js`, 'utf8');
-				} else {
-					let exportTokens: any = {};
-					result.messages.forEach((message: any) => {
-						if (message.plugin === 'postcss-modules') {
-							exportTokens = message.exportTokens;
-						}
-					});
-					Object.keys(exportTokens).forEach((key) => {
-						key = key.replace(/-(.){1}/g, (match, offset) => offset.toUpperCase());
-						cssModule += `export const ${key} = '${exportTokens[key]}';`;
-					});
-				}
-				const relative = path.relative(process.cwd(), args.path);
-				cssOutput += `
-/* ${relative} */
-${result.css}`;
-				return { contents: cssModule };
-			});
+					if (cssModuleExists) {
+						cssModule = await util.promisify(fs.readFile)(`${args.path}.js`, 'utf8');
+					} else {
+						let exportTokens: any = {};
+						result.messages.forEach((message: any) => {
+							if (message.plugin === 'postcss-modules') {
+								exportTokens = message.exportTokens;
+							}
+						});
+						Object.keys(exportTokens).forEach((key) => {
+							key = key.replace(/-(.){1}/g, (_, offset) => offset.toUpperCase());
+							cssModule += `export const ${key} = '${exportTokens[key]}';`;
+						});
+					}
+					const relative = path.relative(process.cwd(), args.path);
+					cssOutput += `
+	/* ${relative} */
+	${result.css}`;
+					return { contents: cssModule };
+				});
+			}
 		}
 	};
 };
@@ -84,7 +86,7 @@ const has = (userFeatures = {}) => {
 		}
 	};
 };
-const cssPlugin = css();
+const { plugin, getOutput } = css();
 const extension = fs.existsSync(`./${src}/${entry}.tsx`) ? 'tsx' : 'ts';
 const spinner = ora('building');
 
@@ -115,7 +117,7 @@ export const build = async (args: any) => {
 				'.eot': 'file',
 				'.ico': 'file'
 			},
-			plugins: [hasPlugin, cssPlugin]
+			plugins: [hasPlugin, plugin]
 		});
 	} catch (e) {}
 	let index = fs.readFileSync(`./${src}/${html}.html`, 'utf-8');
@@ -129,7 +131,7 @@ export const build = async (args: any) => {
 		`<script async src='./${entry}.js'></script>
 </body>`
 	);
-	fs.writeFileSync(`./${output}/${entry}.css`, cssPlugin.output());
+	fs.writeFileSync(`./${output}/${entry}.css`, getOutput());
 	fs.writeFileSync(`./${output}/${html}.html`, index);
 	const end = performance.now();
 	const duration = end - start;
